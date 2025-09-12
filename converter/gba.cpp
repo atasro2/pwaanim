@@ -10,7 +10,7 @@ void GbaExporter::buildPix() {
     int currentSheetOffset = 0;
     
     std::vector<Sheet> &sheets = animData.getSheets();
-    for(int i = 0; i < sheets.size(); i++) {
+    for(unsigned int i = 0; i < sheets.size(); i++) {
         Sheet &sheet = sheets[i]; 
         //sheetMap[sheet.getName()].offset = currentSheetOffset;
         sheetMap[sheet.getName()].offset = pixBytes.size(); // this is probably safer
@@ -55,7 +55,7 @@ void GbaExporter::buildPix() {
         pixBytes.push_back((palCount >> 16) & 0xFF);
         pixBytes.push_back((palCount >> 24) & 0xFF);
         currentSheetOffset += 4;
-        for(int i = 0; i < state.info_png.color.palettesize; i++) {
+        for(unsigned int i = 0; i < state.info_png.color.palettesize; i++) {
             int r = state.info_png.color.palette[i*4];
             int g = state.info_png.color.palette[i*4+1];
             int b = state.info_png.color.palette[i*4+2];
@@ -96,7 +96,7 @@ void GbaExporter::buildPix() {
         }
 
         if(sheet.isCompressed()) {
-            for(int table = 0; table < parttable.size(); table++) {
+            for(unsigned int table = 0; table < parttable.size(); table++) {
                 pixBytes.push_back(parttable[table] & 0xFF);
                 pixBytes.push_back((parttable[table] >> 8) & 0xFF);
                 pixBytes.push_back((parttable[table] >> 16) & 0xFF);
@@ -108,23 +108,11 @@ void GbaExporter::buildPix() {
                 tileBlob.push_back(tileBlob[1]);
             }
         }
-        //std::cout << sheet.getName();
-        //for(int test = 0; test < sheetMap[sheet.getName()].parts.size(); test++) {
-        //    std::cout << sheetMap[sheet.getName()].parts[test].offset << std::endl;
-        //}
         pixBytes.insert(pixBytes.end(), tileBlob.begin(), tileBlob.end());
         currentSheetOffset += tileBlob.size();
     }
 }
 
-/*
-    sizetable = { \
-        '8x8':   0,  '8x16':  1,  '16x8':  2, \
-        '16x16': 4,  '8x32':  5,  '32x8':  6, \
-        '32x32': 8,  '16x32': 9,  '32x16': 10, \
-        '64x64': 12, '32x64': 13, '64x32': 14, \
-    }
-*/
 int getGbaSpriteShapeSize(int width, int height) {
     const std::map<std::pair<int, int>, int> spriteSizeMap = {
         {{8,  8},  0x0},
@@ -186,12 +174,16 @@ int GbaExporter::serializeArrangement(FrameArrangement arrangement, std::string 
             palette = arrangement.sprites[i].palette;
         }
         if(maxPalCnt <= palette) {
-            std::throw_with_nested(std::runtime_error("You dunce you have a sprite using a palette that we can't store with the current bit setting for the arrangement"));
+            std::stringstream errorString;
+            errorString << "sprite # " << i << " has an impossible palette for the current pallete mode";
+            std::throw_with_nested(std::runtime_error(errorString.str()));
         }
 
         int sizeShape = getGbaSpriteShapeSize(partData.w, partData.h);
         if(sizeShape < 0) {
-            std::throw_with_nested(std::runtime_error("You have a sprite that's not in GBA sizes ffs"));
+            std::stringstream errorString;
+            errorString << "sprite # " << i << " has an impossible size for the GBA";
+            std::throw_with_nested(std::runtime_error(errorString.str()));
         }
 
         if(sheetData.compressed) {
@@ -208,7 +200,7 @@ int GbaExporter::serializeArrangement(FrameArrangement arrangement, std::string 
 
         int data = 0;
         data |= sizeShape << 12;
-        data |= palette << 12-arrangement.palMode;
+        data |= palette << (12-arrangement.palMode);
         data |= tileId & tileMask; // technically this mask is not needed
 
         out.push_back(data & 0xFF);
@@ -218,17 +210,6 @@ int GbaExporter::serializeArrangement(FrameArrangement arrangement, std::string 
     return size;
 }
 
-/*
-struct AnimationFrame
-{
-    u16 spriteDataOffset;
-    u8 frameDuration;
-    u8 flags;
-    u8 songId;
-    u8 action;
-    u8 filler6[2];
-};
-*/
 int GbaExporter::serializeFrame(Frame frame, std::vector<unsigned char>&out) {
     int palMode = arrangementData[frame.arrangement].palMode;
     int spriteDataOff = arrangementData[frame.arrangement].reloffset;
@@ -262,10 +243,8 @@ int GbaExporter::serializeFrame(Frame frame, std::vector<unsigned char>&out) {
 }
 
 void GbaExporter::buildSeq() {
-    int currentAnimOffset = 0;
-    
     std::vector<Anim> &anims = animData.getAnims();
-    for(int i = 0; i < anims.size(); i++) {
+    for(unsigned int i = 0; i < anims.size(); i++) {
         std::vector<Frame> &frames = anims[i].getFrames();
         std::vector<FrameArrangement> &arrangements = anims[i].getArrangements();
         int frameCount = frames.size();
@@ -287,17 +266,16 @@ void GbaExporter::buildSeq() {
         std::vector<unsigned char> arrBlob;
         std::vector<unsigned char> frameBlob;
 
-        for(int j = 0; j < arrangements.size(); j++) {
+        for(unsigned int j = 0; j < arrangements.size(); j++) {
             arrangementData[arrangements[j].name].palMode = arrangements[j].palMode;  
             arrangementData[arrangements[j].name].reloffset = arrOffset;
-            std::cout << arrangements[j].name << " + " << arrOffset << std::endl;
             try {
                 arrOffset += serializeArrangement(arrangements[j], anims[i].getSheet(), arrBlob);
             } catch(...) {
                 std::throw_with_nested(std::runtime_error("Error while serializing arrangement " + arrangements[j].name + " of anim " + anims[i].getName()));
             }
         }
-        for(int j = 0; j < frames.size(); j++) {
+        for(unsigned int j = 0; j < frames.size(); j++) {
             serializeFrame(frames[j], frameBlob);
         }
         // First we have frameData
@@ -311,6 +289,7 @@ GbaExporter::GbaExporter(AnimData &anim, fs::path seq, fs::path pix) : Exporter(
     pixpath = pix;
     seqpath = seq;
 }
+
 void GbaExporter::exportAnimation() {
     buildPix();
     buildSeq();

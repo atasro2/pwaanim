@@ -41,13 +41,17 @@ int dumpPNGFromPixAndYml(fs::path ymlpath, fs::path pixpath) {
         ryml::ConstNodeRef root = sheetymltree.crootref();
         unsigned int palCount = INT32_LE(pixFile[pixOffset+0], pixFile[pixOffset+1], pixFile[pixOffset+2], pixFile[pixOffset+3]);
         bool compressed = !!(palCount & 0x80000000);
+        if(compressed) { // TODO: we can
+            std::cerr << "cannot dump compressed pix file" << std::endl;
+            return 1;
+        }
         palCount &= ~0x80000000;
         pixOffset += 4;
 
         lodepng_palette_clear(&state.info_png.color);
         lodepng_palette_clear(&state.info_raw);
 
-        for(int i = 0; i < 16 * palCount; i++) {
+        for(unsigned int i = 0; i < 16 * palCount; i++) {
             uint16_t color = INT16_LE(pixFile[pixOffset+0], pixFile[pixOffset+1]);
             int r = color & 0x1F;
             int g = (color >> 5) & 0x1F;
@@ -61,17 +65,15 @@ int dumpPNGFromPixAndYml(fs::path ymlpath, fs::path pixpath) {
             // and then you have a bunch of other colors with it set
             //if(i % 16 == 0) a = 0; // Force transparency on color 0
 
-            //palette must be added both to input and output color mode, because in this
-            //sample both the raw image and the expected PNG image use that palette.
             lodepng_palette_add(&state.info_png.color, r, g, b, a*255);
             lodepng_palette_add(&state.info_raw, r, g, b, a*255);
             pixOffset += 2;
         }
-        state.info_png.color.colortype = LCT_PALETTE; //if you comment this line, and create the above palette in info_raw instead, then you get the same image in a RGBA PNG.
+        state.info_png.color.colortype = LCT_PALETTE;
         state.info_png.color.bitdepth = 8;
         state.info_raw.colortype = LCT_PALETTE;
         state.info_raw.bitdepth = 8;
-        state.encoder.auto_convert = 0; //we specify ourselves exactly what output PNG color mode we want
+        state.encoder.auto_convert = 0;
         
         unsigned w;
         unsigned h;
@@ -168,13 +170,12 @@ int main(int argc, char ** argv)
             AnimData animData = AnimData(yamlfile);
             Exporter *exporter = new GbaExporter(animData, seqpath, pixpath);
             exporter->exportAnimation();
-            delete exporter;
+            //delete exporter;
         } catch (const std::exception& e) {
             std::cerr << "Couldn't convert animation " << yamlfile << std::endl;
             print_exception(e);
         }
         return 0;
-        //return compileAnimYamlIntoPixSeq(parser.get<std::string>("ymlpath"));
     }
     return 1;
 }
