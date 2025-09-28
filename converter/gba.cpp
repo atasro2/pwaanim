@@ -1,3 +1,4 @@
+#include <fmt/os.h>
 #include <utility>
 #include <string>
 #include <filesystem>
@@ -59,13 +60,10 @@ void GbaExporter::buildPix() {
             int r = state.info_png.color.palette[i*4];
             int g = state.info_png.color.palette[i*4+1];
             int b = state.info_png.color.palette[i*4+2];
-            int a = 0;
             r >>= 3;
-            g >>= 3;
+            g >>= 2;
             b >>= 3;
-            if(sheet.isSpecialGBAAlpha())
-                a = !(state.info_png.color.palette[i*4+3] / 255);
-            uint16_t color = r | (g << 5) | (b << 10) | (a << 15);
+            uint16_t color = (r & 0x1F) | ((g << 4) & 0x3E0) | ((b << 10) & 0x7C00) | ((g & 1) << 15);
             pixBytes.push_back(color & 0xFF);
             pixBytes.push_back((color >> 8) & 0xFF);
             currentSheetOffset += 2;
@@ -248,6 +246,9 @@ void GbaExporter::buildSeq() {
         std::vector<Frame> &frames = anims[i].getFrames();
         std::vector<FrameArrangement> &arrangements = anims[i].getArrangements();
         int frameCount = frames.size();
+        int animOffset = seqBytes.size();
+        int maxSprites = 0;
+
         // Frame Header
         seqBytes.push_back(0);
         seqBytes.push_back(0);
@@ -274,10 +275,13 @@ void GbaExporter::buildSeq() {
             } catch(...) {
                 std::throw_with_nested(std::runtime_error("Error while serializing arrangement " + arrangements[j].name + " of anim " + anims[i].getName()));
             }
+            int spriteCount = arrangements[j].sprites.size();
+            maxSprites = maxSprites >= spriteCount ? maxSprites : spriteCount;
         }
         for(unsigned int j = 0; j < frames.size(); j++) {
             serializeFrame(frames[j], frameBlob);
         }
+        metadata.anims.push_back(AnimMetadata(anims[i].getName(), animOffset, maxSprites));
         // First we have frameData
         seqBytes.insert(seqBytes.end(), frameBlob.begin(), frameBlob.end());
         // Then we have sprites
@@ -285,14 +289,32 @@ void GbaExporter::buildSeq() {
     }
 }
 
-GbaExporter::GbaExporter(AnimData &anim, fs::path seq, fs::path pix) : Exporter(anim) {
+GbaExporter::GbaExporter(AnimData &anim, fs::path seq, fs::path pix, fs::path header) : Exporter(anim) {
     pixpath = pix;
     seqpath = seq;
+    headerpath = header;
 }
 
 void GbaExporter::exportAnimation() {
     buildPix();
     buildSeq();
+    Exporter::exportAnimation();
     lodepng::save_file(pixBytes, pixpath);
     lodepng::save_file(seqBytes, seqpath);
+}
+
+void GbaExporter::exportMetadata() {
+    if(headerpath.empty()) return;
+
+    auto out = fmt::output_file(headerpath.string().c_str());
+    out.print("#ifndef GUARD_{}_h\n", headerpath.stem().c_str());
+    out.print("#define GUARD_{}_h\n\n", headerpath.stem().c_str());
+    int maxSprites = 0;
+    for(unsigned int i = 0; i < metadata.anims.size(); i++) {
+        out.print("#define ANIM_{}_{} {}\n", headerpath.stem().c_str(), metadata.anims[i].name, metadata.anims[i].index);
+        out.print("#define ANIM_{}_OFF_{} {}\n", headerpath.stem().c_str(), fmt::format("{:X}", metadata.anims[i].index), metadata.anims[i].index); // Animation Offset Alias
+        maxSprites = maxSprites >= metadata.anims[i].maxSprites ? maxSprites : metadata.anims[i].maxSprites;
+    }
+    out.print("#define ANIM_{}_MAX_SPRITE_COUNT {}\n", headerpath.stem().c_str(), maxSprites); // Animation Offset Alias
+    out.print("\n#endif\n");
 }

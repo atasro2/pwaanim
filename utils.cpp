@@ -63,7 +63,7 @@ std::vector<unsigned char> compressRLE16BitPWAA(std::vector<unsigned char> data)
     int currentIndex = 0;
     int originalSize = data.size();
     assert((data.size() % 2) == 0);
-    data.push_back(0); // ! we append a 0 to satisfy our simulated buggy code later on
+    data.push_back(0); //! we append a 0 to satisfy our simulated buggy code later on
     data.push_back(0); 
     while(true) {
         bool compress = false;
@@ -103,4 +103,35 @@ std::vector<unsigned char> compressRLE16BitPWAA(std::vector<unsigned char> data)
             break;
     }
     return compressedData;
+}
+
+std::vector<unsigned char> decompressRLE16BitPWAA(unsigned char * data, unsigned int size, unsigned int &compressedSize) {
+    std::vector<unsigned char> decompressedData;
+    int i = 0;
+    while (size > decompressedData.size()) {
+        uint16_t cur = INT16_LE(data[i], data[i+1]);
+        i += 2;
+        unsigned int blockSize = cur & 0x7FFF;
+        assert(blockSize <= size && "RLE stream has a block bigger than size provided");
+        if(cur & 0x8000) { // REP
+            uint8_t b1 = data[i];
+            uint8_t b2 = data[i+1];
+            while(blockSize--) {
+                decompressedData.push_back(b1);
+                decompressedData.push_back(b2);
+            }
+            i += 2;
+        } else { // LIT
+            while(blockSize--) {
+                uint8_t b1 = data[i];
+                uint8_t b2 = data[i+1];
+                i += 2;
+                decompressedData.push_back(b1);
+                decompressedData.push_back(b2);
+            }
+        }
+    }
+    assert(size == decompressedData.size() && "RLE stream does not match size provided");
+    compressedSize = i;
+    return decompressedData;
 }

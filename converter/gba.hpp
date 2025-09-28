@@ -26,6 +26,7 @@ class GbaExporter : public Exporter {
     private:
     fs::path pixpath;
     fs::path seqpath;
+    fs::path headerpath;
     std::unordered_map<std::string, struct SheetData> sheetMap;
     std::unordered_map<std::string, struct ArrangementData> arrangementData;
     
@@ -37,6 +38,7 @@ class GbaExporter : public Exporter {
     int serializeArrangement(FrameArrangement arrangement, std::string sheet, std::vector<unsigned char>&out);
     int serializeFrame(Frame frame, std::vector<unsigned char>&out);
     public:
-    GbaExporter(AnimData &anim, fs::path seq, fs::path pix);
+    GbaExporter(AnimData &anim, fs::path seq, fs::path pix, fs::path header = "");
     void exportAnimation();
+    void exportMetadata();
 };

@@ -1,2 +1,9 @@
 pwaanim
 pwaanim.exe
+testing/
+*.png
+*.pix
+*.seq
+
+c_cpp_properties.json
+settings.json

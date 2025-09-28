@@ -20,6 +20,7 @@ ryml::Tree readYamlFile(std::string filename);
 void blitTileIntoImage(std::vector<unsigned char> &image, int iw, int ih, int partx, int party, const unsigned char * tile, int tw, int th, int pal);
 std::vector<unsigned char> createTilesFromImage(int tw, int th, const std::vector<unsigned char> &image, int iw, int ih, int ix, int iy, int &pal);
 std::vector<unsigned char> compressRLE16BitPWAA(std::vector<unsigned char> data);
+std::vector<unsigned char> decompressRLE16BitPWAA(unsigned char * data, unsigned int size, unsigned int &compressedSize);
 
 
 int compileAnimYamlIntoPixSeq(fs::path yamlfile);

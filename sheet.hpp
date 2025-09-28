@@ -12,7 +12,6 @@ struct RawPart {
 class Sheet {
 private:
     bool compressed = false;
-    bool specialGBAAlpha = false;
     std::string name;
     std::string gfxFilename;
     std::vector<struct RawPart> parts;
@@ -23,5 +22,4 @@ public:
     std::string getName();
     std::string getGfxFilename();
     bool isCompressed();
-    bool isSpecialGBAAlpha();
 };

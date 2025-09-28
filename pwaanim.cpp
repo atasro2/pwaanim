@@ -19,6 +19,8 @@
 
 namespace fs = std::filesystem;
 
+static bool transparentPng = false;
+
 int dumpPNGFromPixAndYml(fs::path ymlpath, fs::path pixpath) {
     if(!fs::directory_entry{ymlpath}.exists()) {
         std::cerr << "animation yaml file does not exist" << std::endl;
@@ -41,10 +43,6 @@ int dumpPNGFromPixAndYml(fs::path ymlpath, fs::path pixpath) {
         ryml::ConstNodeRef root = sheetymltree.crootref();
         unsigned int palCount = INT32_LE(pixFile[pixOffset+0], pixFile[pixOffset+1], pixFile[pixOffset+2], pixFile[pixOffset+3]);
         bool compressed = !!(palCount & 0x80000000);
-        if(compressed) { // TODO: we can
-            std::cerr << "cannot dump compressed pix file" << std::endl;
-            return 1;
-        }
         palCount &= ~0x80000000;
         pixOffset += 4;
 
@@ -53,20 +51,24 @@ int dumpPNGFromPixAndYml(fs::path ymlpath, fs::path pixpath) {
 
         for(unsigned int i = 0; i < 16 * palCount; i++) {
             uint16_t color = INT16_LE(pixFile[pixOffset+0], pixFile[pixOffset+1]);
-            int r = color & 0x1F;
-            int g = (color >> 5) & 0x1F;
-            int b = (color >> 10) & 0x1F;
-            int a = !((color >> 15) & 1);
-            r = (r * 255) / 31;
-            g = (g * 255) / 31;
-            b = (b * 255) / 31;
+            int a = 255;
+            int r = (color & 0x1F);
+            int g = ((color >> 5) & 0x1F) << 1;
+            int b = ((color >> 10) & 0x1F);
+            int g_lsb = ((color >> 15) & 1);
+            g |= g_lsb;
             
-            // Not a great idea when your first color doesn't have the alpha bit set 
-            // and then you have a bunch of other colors with it set
-            //if(i % 16 == 0) a = 0; // Force transparency on color 0
+            // Colors are not upsampled properly to not have a white with too little green and blacks that are too green
+            r = ((r << 1) * 255) / 63 + g_lsb * 2;
+            g = (g * 255) / 63;
+            b = ((b << 1) * 255) / 63 + g_lsb;
 
-            lodepng_palette_add(&state.info_png.color, r, g, b, a*255);
-            lodepng_palette_add(&state.info_raw, r, g, b, a*255);
+            assert((r >> 3) == (color & 0x1F) && (b >> 3) == ((color >> 10) & 0x1F));
+            if(transparentPng)
+                if(i % 16 == 0) a = 0; // Force transparency on color 0
+            
+            lodepng_palette_add(&state.info_png.color, r, g, b, a);
+            lodepng_palette_add(&state.info_raw, r, g, b, a);
             pixOffset += 2;
         }
         state.info_png.color.colortype = LCT_PALETTE;
@@ -92,6 +94,7 @@ int dumpPNGFromPixAndYml(fs::path ymlpath, fs::path pixpath) {
         image.resize((w * h), 0);
 
         int partCount = sheetymltree["parts"].num_children();
+        int compressedSizes = 0;
         for(int i = 0; i < partCount; i++) {
             int partx;
             int party;
@@ -107,9 +110,22 @@ int dumpPNGFromPixAndYml(fs::path ymlpath, fs::path pixpath) {
             #ifdef VERBOSE
             else std::cout << "No palette provided. assuming 0" << std::endl;
             #endif
-            blitTileIntoImage(image, w, h, partx, party, pixFile.data()+pixOffset, partw, parth, partp);
-            pixOffset += (partw*parth) / 2;
+            if(compressed) {
+                unsigned int partOffset = INT32_LE(pixFile[pixOffset+i*4+0],
+                                                   pixFile[pixOffset+i*4+1],
+                                                   pixFile[pixOffset+i*4+2],
+                                                   pixFile[pixOffset+i*4+3]);
+                unsigned int compressedSize;
+                std::vector<unsigned char> partData = decompressRLE16BitPWAA(pixFile.data()+pixOffset+partOffset, (partw*parth) / 2, compressedSize);
+                compressedSizes += compressedSize;
+                blitTileIntoImage(image, w, h, partx, party, partData.data(), partw, parth, partp);
+            } else {
+                blitTileIntoImage(image, w, h, partx, party, pixFile.data()+pixOffset, partw, parth, partp);
+                pixOffset += (partw*parth) / 2;
+            }
         }
+        if(compressed)
+            pixOffset += partCount * 4 + compressedSizes + compressedSizes % 4; // I hate this
         std::vector<unsigned char> buffer;
         lodepng::encode(buffer, image, w, h, state);
         std::string outfile;
@@ -141,6 +157,7 @@ int main(int argc, char ** argv)
     flagGroup.add_argument("-x", "--dump").help("Dump Sheet PNGs from a .pix file and the corrosponding animation yaml").flag();
     flagGroup.add_argument("-c", "--create").help("Create the .seq, .pix, and header files from the animation yaml").flag();
     parser.add_argument("-pix").help(".pix file used for dumping PNGs");
+    parser.add_argument("-t").help("Dump transparent PNGs").flag();
     parser.add_argument("ymlpath").help("Path to animation yaml file");
     //parser.add_argument("-o", "--output").help("name of compiled animation files");
     try {
@@ -157,19 +174,22 @@ int main(int argc, char ** argv)
             std::cerr << "Please provide a .pix file for dumping" << std::endl;
             return 1;
         }
+        transparentPng = parser["-t"] == true;
         return dumpPNGFromPixAndYml(parser.get<std::string>("ymlpath"), parser.get<std::string>("-pix"));
     }
     if(parser["-c"] == true) {// if creating
         fs::path yamlfile = parser.get<std::string>("ymlpath");
         fs::path pixpath = yamlfile.parent_path() / yamlfile.stem().concat(".pix");
         fs::path seqpath = yamlfile.parent_path() / yamlfile.stem().concat(".seq");
+        fs::path headerpath = yamlfile.parent_path() / yamlfile.stem().concat(".h");
         try {
             if(!fs::exists(yamlfile)) {
                 std::throw_with_nested(std::runtime_error("source yaml file does not exist."));
             }
             AnimData animData = AnimData(yamlfile);
-            Exporter *exporter = new GbaExporter(animData, seqpath, pixpath);
+            Exporter *exporter = new GbaExporter(animData, seqpath, pixpath, headerpath);
             exporter->exportAnimation();
+            exporter->exportMetadata();
             //delete exporter;
         } catch (const std::exception& e) {
             std::cerr << "Couldn't convert animation " << yamlfile << std::endl;

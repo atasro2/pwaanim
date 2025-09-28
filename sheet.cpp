@@ -27,8 +27,6 @@ Sheet::Sheet(ryml::Tree animYml, std::string name) { // Sheet from yaml
     if(!sheetcroot.has_child("gfx"))
         std::throw_with_nested(std::runtime_error("No graphics file has been specified in sheet."));
     sheetcroot["gfx"] >> gfxFilename;
-    if(sheetcroot.has_child("alphaencode"))
-        sheetcroot["alphaencode"] >> specialGBAAlpha;
     if(!sheetcroot.has_child("parts") || sheetcroot["parts"].num_children() == 0) {
         std::throw_with_nested(std::runtime_error("Sheet has no parts."));
     }
@@ -55,7 +53,4 @@ std::string Sheet::getGfxFilename() {
 }
 bool Sheet::isCompressed() {
     return compressed;
-}
-bool Sheet::isSpecialGBAAlpha() {
-    return specialGBAAlpha;
 }
